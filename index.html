@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<meta name="theme-color" content="#120b06" />
+<meta name="description" content="A forward-scrolling survivor set on Indian streets. You don't kill the crowd, you feed it." />
+<link rel="manifest" href="./manifest.webmanifest" />
+<link rel="icon" href="./icons/favicon-64.png" sizes="64x64" />
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="THELA" />
+<title>THELA — Street Food Survivors</title>
+<link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
+<div id="stage">
+  <canvas id="game" width="480" height="854"></canvas>
+
+  <!-- ------------------------------------------------------------- HUD -->
+  <div id="hud" class="hidden">
+    <div class="hud-top">
+      <div class="row">
+        <div id="stopLabel" class="stop">STOP 1</div>
+        <div id="timer" class="timer">0:45</div>
+      </div>
+      <div class="xpbar"><i id="xpFill"></i></div>
+      <div class="row sub">
+        <span id="lvl" class="chip">Lv 1</span>
+        <span id="money" class="chip money">₹0</span>
+        <span id="served" class="chip">0 served</span>
+        <span id="cityRule" class="rule"></span>
+      </div>
+      <div id="bossWrap" class="bosswrap hidden">
+        <div class="bossname" id="bossName"></div>
+        <div class="bossbar"><i id="bossFill"></i></div>
+      </div>
+    </div>
+
+    <div id="banner" class="banner hidden"><b id="bannerA"></b><span id="bannerB"></span></div>
+
+    <div class="hud-bottom">
+      <div id="dishRow" class="dishrow"></div>
+      <div class="heatrow">
+        <div class="heatbar"><i id="heatFill"></i><span id="heatLabel">GARAM</span></div>
+        <button id="aromaBtn" class="aroma" aria-label="Tadka">
+          <span class="aromaEmoji">🌶️</span>
+          <svg viewBox="0 0 44 44"><circle id="aromaArc" cx="22" cy="22" r="19"></circle></svg>
+        </button>
+      </div>
+      <div id="ingRow" class="ingrow"></div>
+    </div>
+  </div>
+
+  <!-- --------------------------------------------------------- screens -->
+  <div id="screens">
+    <section id="scrTitle" class="screen">
+      <div class="logo">THELA</div>
+      <div class="sub">street food survivors</div>
+      <p class="tag">You don’t kill the crowd. You feed it.</p>
+      <button class="big" data-go="city">START A ROUTE</button>
+      <p class="hint">WASD / arrows to move · SPACE for tadka · drag on touch</p>
+      <button class="ghost hidden" id="btnInstall">Install to home screen</button>
+      <p class="hint hidden" id="iosHint">On iPhone: tap <b>Share</b> → <b>Add to Home Screen</b> to play fullscreen and offline.</p>
+    </section>
+
+    <section id="scrCity" class="screen hidden">
+      <h2>PICK YOUR CITY</h2>
+      <p class="lede">A city is a rule change, not a skybox.</p>
+      <div id="cityList" class="cards"></div>
+      <button class="ghost" data-go="title">Back</button>
+    </section>
+
+    <section id="scrChar" class="screen hidden">
+      <h2>PICK YOUR VENDOR</h2>
+      <p class="lede">The station is the weapon.</p>
+      <div id="charList" class="cards"></div>
+      <button class="ghost" data-go="city">Back</button>
+    </section>
+
+    <section id="scrLevel" class="screen hidden dim">
+      <h2 id="levelTitle">LEVEL 2</h2>
+      <p class="lede">Pick one.</p>
+      <div id="offerList" class="cards offers"></div>
+    </section>
+
+    <section id="scrStop" class="screen hidden dim">
+      <h2 id="stopTitle">STOP CLEARED</h2>
+      <p class="lede" id="stopSub"></p>
+      <div class="stoprow">
+        <button class="big" id="btnContinue">PUSH ON →</button>
+        <button class="ghost" id="btnBail">Pack up &amp; bank half</button>
+      </div>
+    </section>
+
+    <section id="scrOver" class="screen hidden dim">
+      <h2 id="overTitle">THELA TIPPED</h2>
+      <p class="lede" id="overSub"></p>
+      <div id="overStats" class="stats"></div>
+      <button class="big" data-go="city">RUN IT AGAIN</button>
+    </section>
+
+    <section id="scrPause" class="screen hidden dim">
+      <h2>PAUSED</h2>
+      <button class="big" id="btnResume">RESUME</button>
+      <button class="ghost" data-go="title">Quit to menu</button>
+    </section>
+  </div>
+</div>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>

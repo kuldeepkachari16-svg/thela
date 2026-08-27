@@ -1,0 +1,13 @@
+{
+  "name": "thela",
+  "version": "0.1.0",
+  "description": "THELA — street food survivors. Playable prototype: Delhi and Mumbai.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "python3 -m http.server 8123",
+    "sim": "node tools/sim.mjs",
+    "smoke": "node tools/smoke.mjs",
+    "build:sw": "node tools/build-sw.mjs"
+  }
+}
