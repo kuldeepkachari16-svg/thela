@@ -8,6 +8,7 @@
     "start": "python3 -m http.server 8123",
     "sim": "node tools/sim.mjs",
     "smoke": "node tools/smoke.mjs",
-    "build:sw": "node tools/build-sw.mjs"
+    "build:sw": "node tools/build-sw.mjs",
+    "diag": "node tools/diag.mjs"
   }
 }

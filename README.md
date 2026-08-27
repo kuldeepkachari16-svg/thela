@@ -94,14 +94,19 @@ tadka on clusters of six or more, so a human should clear well above these rates
 ## Checks
 
 ```bash
-npm run smoke      # drives real render.js + ui.js against DOM/canvas stubs
-RUNS=25 npm run sim  # headless balance sweep
+npm run smoke              # drives real render.js + ui.js against DOM/canvas stubs
+RUNS=25 npm run sim        # headless balance sweep
+npm run diag delhi/munna   # what actually killed the cart, and is heat biting?
 ```
 
 `smoke` plays four routes plus both boss fights, asserting that every draw path
 and every screen transition (banner, level-up, stop-clear, tipped, victory)
 actually fires. It caught the bug where killing a boss set `won` and the stop
 timer immediately overwrote it with `stopclear`.
+
+`diag` attributes cart damage per customer type and reports the heat range over a
+run. It's what caught the tawa being decorative — heat never fell below 95%,
+because firing cost a fraction of what standing near the cart refilled.
 
 Verified in Chrome too: HUD binds live, level-up modal opens, the canvas paints
 real Delhi shopfront/road/cart pixels, no console errors. Offline was checked by
