@@ -1,7 +1,7 @@
 // DOM overlay: HUD readouts, screens, and the level-up cards.
 
 import { CITIES, ROUTE_ORDER } from './data/cities.js';
-import { CHARACTERS } from './data/characters.js';
+import { HERO } from './data/hero.js';
 import { DISHES, INGREDIENTS } from './data/dishes.js';
 import { fmtTime } from './util.js';
 
@@ -13,22 +13,25 @@ export class UI {
       hud: $('hud'),
       stopLabel: $('stopLabel'), timer: $('timer'), xpFill: $('xpFill'),
       lvl: $('lvl'), money: $('money'), served: $('served'), cityRule: $('cityRule'),
+      hpFill: $('hpFill'), hpLabel: $('hpLabel'),
       bossWrap: $('bossWrap'), bossName: $('bossName'), bossFill: $('bossFill'),
       banner: $('banner'), bannerA: $('bannerA'), bannerB: $('bannerB'),
       dishRow: $('dishRow'), ingRow: $('ingRow'),
       heatFill: $('heatFill'), heatLabel: $('heatLabel'),
       heatbar: document.querySelector('.heatbar'),
       aromaBtn: $('aromaBtn'), aromaArc: $('aromaArc'),
-      cityList: $('cityList'), charList: $('charList'), offerList: $('offerList'),
+      cityList: $('cityList'), offerList: $('offerList'),
       levelTitle: $('levelTitle'),
+      heroName: $('heroName'), heroStory: $('heroStory'), heroHook: $('heroHook'),
       stopTitle: $('stopTitle'), stopSub: $('stopSub'),
       overTitle: $('overTitle'), overSub: $('overSub'), overStats: $('overStats'),
     };
     this.screens = {
-      title: $('scrTitle'), city: $('scrCity'), char: $('scrChar'),
+      title: $('scrTitle'), story: $('scrStory'), city: $('scrCity'),
       level: $('scrLevel'), stop: $('scrStop'), over: $('scrOver'), pause: $('scrPause'),
     };
     this._bannerTimer = null;
+    this.buildStory();
   }
 
   show(name) {
@@ -41,49 +44,36 @@ export class UI {
     this.el.hud.classList.remove('hidden');
   }
 
-  /* ------------------------------------------------------------- pickers */
+  /* --------------------------------------------------------------- story */
+
+  buildStory() {
+    this.el.heroName.textContent = `${HERO.full} · ${HERO.station}`;
+    this.el.heroStory.innerHTML = HERO.story.map((p) => `<p>${p}</p>`).join('');
+    this.el.heroHook.textContent = HERO.hook;
+  }
+
+  /* -------------------------------------------------------------- pickers */
 
   buildCities(onPick) {
     const wrap = this.el.cityList;
     wrap.innerHTML = '';
-    for (const id of ROUTE_ORDER) {
+    ROUTE_ORDER.forEach((id, i) => {
       const c = CITIES[id];
       const b = document.createElement('button');
-      b.className = 'card' + (c.playable ? '' : ' locked');
+      b.className = 'card city';
+      b.style.setProperty('--cityA', c.palette.shopA);
+      b.style.setProperty('--cityB', c.palette.shopB);
+      b.style.setProperty('--cityAcc', c.palette.accent);
       b.innerHTML = `
-        <div class="ce">${c.emoji || '\u{1F4CD}'}</div>
+        <div class="ce">${c.emoji}</div>
         <div class="cbody">
-          <div class="ct">${c.name} <span style="color:var(--dim);font-weight:600">· ${c.area}</span></div>
+          <div class="ct">${c.name} <span class="area">· ${c.area}</span></div>
           <div class="cs">${c.ruleShort}</div>
         </div>
-        ${c.playable ? '' : '<div class="lock">SOON</div>'}`;
-      if (c.playable) b.onclick = () => onPick(id);
-      else b.disabled = true;
+        <div class="pageno">${i + 1}</div>`;
+      b.onclick = () => onPick(id);
       wrap.appendChild(b);
-    }
-  }
-
-  buildChars(cityId, onPick) {
-    const wrap = this.el.charList;
-    wrap.innerHTML = '';
-    const order = Object.keys(CHARACTERS).sort((a, b) => (CHARACTERS[b].playable ? 1 : 0) - (CHARACTERS[a].playable ? 1 : 0));
-    for (const id of order) {
-      const ch = CHARACTERS[id];
-      const home = ch.city === cityId;
-      const b = document.createElement('button');
-      b.className = 'card' + (ch.playable ? '' : ' locked');
-      b.innerHTML = `
-        <div class="ce">${ch.emoji}</div>
-        <div class="cbody">
-          <div class="ct">${ch.name} <span style="color:var(--dim);font-weight:600">· ${ch.station}</span>
-            ${home && ch.playable ? '<span class="chip" style="color:var(--good)">HOME</span>' : ''}</div>
-          <div class="cs">${ch.tagline}${ch.playable ? ` · starts with ${DISHES[ch.starter].emoji} ${DISHES[ch.starter].name}` : ''}</div>
-        </div>
-        ${ch.playable ? '' : '<div class="lock">SOON</div>'}`;
-      if (ch.playable) b.onclick = () => onPick(id);
-      else b.disabled = true;
-      wrap.appendChild(b);
-    }
+    });
   }
 
   /* ----------------------------------------------------------------- HUD */
@@ -120,26 +110,31 @@ export class UI {
     e.money.textContent = `₹${w.money}`;
     e.served.textContent = `${w.served} served`;
 
+    const hpp = w.hpPct();
+    e.hpFill.style.width = `${hpp * 100}%`;
+    e.hpFill.classList.toggle('low', hpp <= 0.3);
+    e.hpLabel.textContent = `${Math.ceil(w.hero.hp)}`;
+
     const hp = w.heatPct();
     e.heatFill.style.width = `${hp * 100}%`;
-    e.heatbar.classList.toggle('cold', w.vendor.cold);
-    e.heatLabel.textContent = w.vendor.cold
-      ? 'COLD TAWA — GET TO THE CART'
-      : w.nearCart() ? 'REHEATING' : `GARAM ${Math.round(hp * 100)}%`;
+    e.heatbar.classList.toggle('cold', w.hero.cold);
+    e.heatLabel.textContent = w.hero.cold
+      ? 'COLD TAWA — STAND STILL'
+      : w.hero.stoking ? 'STOKING' : `GARAM ${Math.round(hp * 100)}%`;
 
-    const ready = w.vendor.aromaCd <= 0;
+    const ready = w.hero.aromaCd <= 0;
     e.aromaBtn.classList.toggle('ready', ready);
     e.aromaArc.style.strokeDashoffset = `${119.4 * (1 - w.aromaPct())}`;
 
     // dishes
-    const sig = w.vendor.dishes.map((d) => d.id + d.level).join(',') + '|' + w.vendor.ingredients.join(',');
+    const sig = w.hero.dishes.map((d) => d.id + d.level).join(',') + '|' + w.hero.ingredients.join(',');
     if (sig !== this._sig) {
       this._sig = sig;
-      e.dishRow.innerHTML = w.vendor.dishes.map((d) => {
+      e.dishRow.innerHTML = w.hero.dishes.map((d) => {
         const def = DISHES[d.id];
         return `<span class="dish" title="${def.name}">${def.emoji}<b>${d.level}</b></span>`;
       }).join('');
-      e.ingRow.innerHTML = w.vendor.ingredients.map((i) =>
+      e.ingRow.innerHTML = w.hero.ingredients.map((i) =>
         `<span class="ing" title="${INGREDIENTS[i].name}">${INGREDIENTS[i].emoji}</span>`).join('');
     }
   }
@@ -166,17 +161,17 @@ export class UI {
     this.el.stopTitle.textContent = `${info.name.toUpperCase()} — CLEARED`;
     const next = info.next;
     this.el.stopSub.textContent = next
-      ? (next.boss ? `Next: ${next.name}. Something is waiting there.` : `Next stop: ${next.name}. It gets heavier.`)
+      ? (next.boss ? `Next: ${next.name}. Someone is waiting there.` : `Next stop: ${next.name}. It gets heavier.`)
       : 'End of the route.';
     this.screens.stop.classList.remove('hidden');
   }
   hideStopClear() { this.screens.stop.classList.add('hidden'); }
 
   showOver(info, city) {
-    const tipped = info.reason === 'tipped';
-    this.el.overTitle.textContent = tipped ? 'THELA TIPPED' : 'PACKED UP EARLY';
-    this.el.overSub.textContent = tipped
-      ? 'The crowd you couldn’t feed took it out on the cart.'
+    const mobbed = info.reason === 'mobbed';
+    this.el.overTitle.textContent = mobbed ? 'MUNNA WENT DOWN' : 'PACKED UP EARLY';
+    this.el.overSub.textContent = mobbed
+      ? `The crowd you couldn’t feed closed in${info.by ? ` — ${info.by} got the last word.` : '.'} The page stays where it is.`
       : 'You walked away with half the takings. Safe is a choice.';
     this.el.overStats.innerHTML = `
       <div><b>₹${info.money}</b><span>banked</span></div>
@@ -186,8 +181,8 @@ export class UI {
   }
 
   showVictory(info) {
-    this.el.overTitle.textContent = 'ROUTE CLEARED';
-    this.el.overSub.textContent = `${info.city.name} is yours. The whole street knows the cart now.`;
+    this.el.overTitle.textContent = `PAGE ${info.page.n} RECOVERED`;
+    this.el.overSub.textContent = `${info.page.title}. ${info.city.name} knows Munna now — ${info.page.n} of ${info.page.of} pages back in Dadi’s book.`;
     this.el.overStats.innerHTML = `
       <div><b>₹${info.money}</b><span>banked</span></div>
       <div><b>${info.served}</b><span>served</span></div>

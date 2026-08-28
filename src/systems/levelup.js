@@ -6,24 +6,26 @@ import { INGREDIENTS, DISHES, RECIPES, MAX_DISH_LEVEL, dishStat } from '../data/
 import { shuffled, choice } from '../util.js';
 
 const PERKS = [
-  { id: 'burner',  emoji: '\u{1F525}', title: 'Bigger Burner',      sub: '+18 max heat',
-    apply: (w) => { w.stats.heatMax += 18; w.vendor.heatMax = w.stats.heatMax; w.vendor.heat += 18; } },
-  { id: 'blower',  emoji: '\u{1F32C}', title: 'Hand Blower',        sub: '+7 heat regen at the cart',
-    apply: (w) => { w.stats.heatRegen += 7; } },
-  { id: 'chappal', emoji: '\u{1FA74}', title: 'New Chappals',       sub: '+16 move speed',
+  { id: 'burner',  emoji: '\u{1F525}', title: 'Bigger Burner',    sub: '+18 max heat',
+    apply: (w) => { w.stats.heatMax += 18; w.hero.heatMax = w.stats.heatMax; w.hero.heat += 18; } },
+  { id: 'blower',  emoji: '\u{1F32C}', title: 'Hand Blower',      sub: '+8 heat regen while you stoke',
+    apply: (w) => { w.stats.heatRegen += 8; } },
+  { id: 'coals',   emoji: '\u{1FAB5}', title: 'Slow Coals',       sub: 'Keep half your regen even on the move',
+    apply: (w) => { w.stats.idleRegen = Math.min(0.5, w.stats.idleRegen + 0.11); } },
+  { id: 'chappal', emoji: '\u{1FA74}', title: 'New Chappals',     sub: '+16 move speed',
     apply: (w) => { w.stats.moveSpeed += 16; } },
-  { id: 'tadka',   emoji: '\u{1F336}', title: 'Louder Tadka',       sub: '−1.1s aroma cooldown, +18 radius',
+  { id: 'tadka',   emoji: '\u{1F336}', title: 'Louder Tadka',     sub: '\u22121.1s aroma cooldown, +18 radius',
     apply: (w) => { w.stats.aromaCd = Math.max(2.4, w.stats.aromaCd - 1.1); w.aromaRadius += 18; } },
-  { id: 'jugaad',  emoji: '\u{1F527}', title: 'Jugaad Repair',      sub: 'Repair the cart by 34',
-    apply: (w) => { w.cart.hp = Math.min(w.cart.maxHp, w.cart.hp + 34); } },
-  { id: 'thela',   emoji: '\u{1F6D2}', title: 'Reinforced Thela',   sub: '+28 max cart HP (and heal it)',
-    apply: (w) => { w.cart.maxHp += 28; w.cart.hp += 28; } },
-  { id: 'change',  emoji: '\u{1FA99}', title: 'Loose Change Sense',  sub: '+30 pickup magnet',
+  { id: 'tonic',   emoji: '\u{1F375}', title: 'Dadi\u2019s Tonic',    sub: 'Get 34 health back right now',
+    apply: (w) => { w.hero.hp = Math.min(w.hero.maxHp, w.hero.hp + 34); } },
+  { id: 'shoulders', emoji: '\u{1F4AA}', title: 'Broad Shoulders', sub: '+28 max health (and heal it)',
+    apply: (w) => { w.hero.maxHp += 28; w.hero.hp += 28; } },
+  { id: 'change',  emoji: '\u{1FA99}', title: 'Loose Change Sense', sub: '+30 pickup magnet',
     apply: (w) => { w.magnet += 30; } },
-  { id: 'regular', emoji: '\u{1F91D}', title: 'Regulars',           sub: '+20% money from every order',
+  { id: 'regular', emoji: '\u{1F91D}', title: 'Regulars',         sub: '+20% money from every order',
     apply: (w) => { w.payMult += 0.2; } },
-  { id: 'apron',   emoji: '\u{1F9F5}', title: 'Thick Apron',        sub: 'Cart takes 12% less damage',
-    apply: (w) => { w.cartArmour *= 0.88; } },
+  { id: 'apron',   emoji: '\u{1F9F5}', title: 'Thick Apron',      sub: 'You take 12% less damage',
+    apply: (w) => { w.armour *= 0.88; } },
 ];
 
 function ingredientOffer(id) {
@@ -48,7 +50,7 @@ function dishOffer(slot) {
     emoji: d.emoji,
     title: `${d.name}  Lv${next}`,
     sub: d.behaviour === 'support'
-      ? `Repairs ${dishStat(d, 'repair', next)} and returns ${Math.round(dishStat(d, 'heatBack', next))} heat`
+      ? `Heals ${dishStat(d, 'repair', next)} and returns ${Math.round(dishStat(d, 'heatBack', next))} heat`
       : `Damage ${dmgNow} → ${dmgNext}`,
     apply: () => { slot.level = next; },
   };
@@ -59,7 +61,7 @@ function perkOffer(p) {
 }
 
 export function rollOffers(w, n = 3) {
-  const held = w.vendor.ingredients;
+  const held = w.hero.ingredients;
   const pantry = w.city.pantry;
 
   // Ingredients that finish a recipe right now, then anything else in the pantry.
@@ -70,7 +72,7 @@ export function rollOffers(w, n = 3) {
   );
   const plain = pantry.filter((id) => !held.includes(id) && !completing.includes(id));
 
-  const upgradable = w.vendor.dishes.filter((s) => s.level < MAX_DISH_LEVEL);
+  const upgradable = w.hero.dishes.filter((s) => s.level < MAX_DISH_LEVEL);
 
   const pool = [];
   for (const id of shuffled(completing)) pool.push({ w: 46, mk: () => ingredientOffer(id) });

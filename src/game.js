@@ -1,20 +1,21 @@
-// The world. Owns the six theme mechanics:
-//   heat (tawa), aroma (tadka), order matching, cart-as-HP,
-//   patience→hostility, and the city pantry.
+// The world. Munna is the only body on the street — no cart to defend.
+// The six theme mechanics now hang off him:
+//   heat (stoke the tawa by holding still), aroma (tadka), order matching,
+//   HERO-as-HP, patience→hostility, and the city pantry.
 
 import { clamp, dist, rand } from './util.js';
-import { CITIES, BOSSES } from './data/cities.js';
-import { CHARACTERS, statsFor } from './data/characters.js';
+import { CITIES, BOSSES, pageFor } from './data/cities.js';
+import { HERO, heroStats } from './data/hero.js';
 import { DISHES, RECIPES, INGREDIENTS, dishStat } from './data/dishes.js';
 import {
-  makeVendor, makeCart, makeBoss, makeProjectile, makeZone,
+  makeHero, makeBoss, makeProjectile, makeZone,
   makePickup, makeFx, addDish, updateCustomer, updateProjectile, updatePickup,
   updateDishes, separate,
 } from './entities.js';
 import { Spawner } from './systems/spawner.js';
 import { rollOffers, xpForLevel } from './systems/levelup.js';
 
-export const HEAT_ZONE = 112;   // how close to the cart you must be to reheat
+export const STOKE_DELAY = 0.18;   // how long you must hold still before the coals catch
 
 export class World {
   constructor(W, H, hooks) {
@@ -23,55 +24,49 @@ export class World {
     this.state = 'idle';
   }
 
-  start(cityId, charId) {
+  start(cityId) {
     const city = CITIES[cityId];
     this.city = city;
-    this.charId = charId;
-    this.char = CHARACTERS[charId];
-    this.stats = statsFor(charId);
+    this.mods = { ...city.mods };
+    this.stats = heroStats();
 
     const half = city.lane.width / 2;
     this.lane = { x0: this.W / 2 - half, x1: this.W / 2 + half };
 
-    this.cart = makeCart(this.W / 2, this.H * 0.72);
-    this.vendor = makeVendor(this.char, this.stats, this.W / 2, this.H * 0.6);
-    addDish(this.vendor, this.char.starter);
+    this.hero = makeHero(HERO, this.stats, this.W / 2, this.H * 0.66);
+    addDish(this.hero, HERO.starter);
 
     this.customers = [];
     this.projectiles = [];
     this.zones = [];
     this.pickups = [];
     this.effects = [];
-    this.puddles = [];
+    this.patches = [];
+    this.sweepers = [];
+    this.sweepT = rand(9, 5);
     this.boss = null;
 
-    this.aromaRadius = 188;
+    this.aromaRadius = 190 * (this.mods.aromaMult ?? 1);
     this.magnet = 58;
     this.payMult = 1;
-    this.cartArmour = 1;
+    this.armour = 1;
     this.money = 0;
     this.served = 0;
+    this.robbedOf = 0;
     this.xp = 0;
     this.level = 1;
     this.xpNext = xpForLevel(1);
     this.pendingLevelUps = 0;
     this.runTime = 0;
     this.scroll = 0;
-    this.pushSpeed = 46;
+    this.walkSpeed = 46;
     this.shake = 0;
+    this.flipped = false;
     this._firePenalty = 1;
 
     this.stopIndex = 0;
     this.spawner = new Spawner(this);
     this.beginStop();
-
-    // Home-city bonus, straight from the concept.
-    this.homeBonus = this.char.city === cityId;
-    if (this.homeBonus) {
-      this.payMult += 0.15;
-      this.cart.maxHp += 15;
-      this.cart.hp += 15;
-    }
 
     this.state = 'playing';
   }
@@ -83,17 +78,31 @@ export class World {
   beginStop() {
     const s = this.stopDef;
     this.spawner.reset();
+
+    // Ahmedabad flips at midnight: the rule change is a stop, not a skybox.
+    const flipAt = this.mods.flipStop;
+    if (flipAt != null && !this.flipped && this.stopIndex >= flipAt) {
+      const f = this.city.mods.flip;
+      this.flipped = true;
+      this.mods.spawnRateMult = f.spawnRateMult;
+      this.mods.payMult = f.payMult;
+      this.mods.dark = f.dark;
+      this.banner(f.label, 'Everything doubles. Both ways.');
+    }
+
     if (s.boss) {
       this.stopDuration = 0;
       this.stopTimeLeft = 0;
       const def = BOSSES[s.boss];
-      this.boss = makeBoss(def, this.W / 2, this.H * 0.28);
+      this.boss = makeBoss(def, this.W / 2, this.H * 0.24);
       this.banner(def.name, def.subtitle);
     } else {
       this.stopDuration = s.dur;
       this.stopTimeLeft = s.dur;
       this.boss = null;
-      this.banner(`STOP ${this.stopIndex + 1} · ${s.name}`, this.city.ruleShort);
+      if (!this.flipped || this.stopIndex !== this.mods.flipStop) {
+        this.banner(`STOP ${this.stopIndex + 1} · ${s.name}`, this.city.ruleShort);
+      }
     }
   }
 
@@ -103,9 +112,10 @@ export class World {
     for (const c of this.customers) this.fx('poof', { x: c.x, y: c.y });
     this.customers.length = 0;
     this.projectiles.length = 0;
+    this.sweepers.length = 0;
     this.stopIndex++;
-    this.vendor.heat = this.stats.heatMax;
-    this.cart.hp = Math.min(this.cart.maxHp, this.cart.hp + 18);
+    this.hero.heat = this.stats.heatMax;
+    this.hero.hp = Math.min(this.hero.maxHp, this.hero.hp + 22);
     this.beginStop();
     this.state = 'playing';
   }
@@ -125,12 +135,11 @@ export class World {
     if (this.shake > 0) this.shake = Math.max(0, this.shake - dt * 3);
 
     this.updateHazards(dt);
-    this.updateVendor(dt, input);
-    this.updateCart(dt);
+    this.updateHero(dt, input);
     this.updateHeat(dt);
 
     this._firePenalty = this.computeFirePenalty();
-    updateDishes(this.vendor, this, dt);
+    updateDishes(this.hero, this, dt);
 
     this.spawner.update(dt);
     if (this.boss) this.updateBoss(dt);
@@ -169,107 +178,115 @@ export class World {
     }
   }
 
-  /* --------------------------------------------------------------- vendor */
+  /* ----------------------------------------------------------------- hero */
 
-  updateVendor(dt, input) {
-    const v = this.vendor;
-    if (v.slipT > 0) v.slipT -= dt;
+  updateHero(dt, input) {
+    const h = this.hero;
+    if (h.slipT > 0) h.slipT -= dt;
+    if (h.hitFlash > 0) h.hitFlash -= dt;
+    if (h.invuln > 0) h.invuln -= dt;
+
     const d = input.dir();
-    const mult = v.slipT > 0 ? 0.45 : 1;
+    const moving = !!(d.x || d.y);
+    let mult = h.slipT > 0 ? 0.45 : 1;
+    if (this.inPatch(h.x, h.y, 'slow')) mult *= 0.62;
     const sp = this.stats.moveSpeed * mult;
-    v.x += d.x * sp * dt;
-    v.y += d.y * sp * dt;
-    if (d.x) v.facing = d.x > 0 ? 1 : -1;
-    if (d.x || d.y) v.stepPhase += dt * 11;
+    h.x += d.x * sp * dt;
+    h.y += d.y * sp * dt;
+    if (d.x) h.facing = d.x > 0 ? 1 : -1;
+    if (moving) h.stepPhase += dt * 11;
 
-    v.x = clamp(v.x, this.lane.x0 + v.r, this.lane.x1 - v.r);
-    v.y = clamp(v.y, this.H * 0.16, this.H - 54);
+    h.x = clamp(h.x, this.lane.x0 + h.r, this.lane.x1 - h.r);
+    h.y = clamp(h.y, this.H * 0.16, this.H - 54);
 
-    if (v.aromaCd > 0) v.aromaCd -= dt;
+    // Stoking: plant your feet and the coals come back. Move and they die down.
+    // That is the whole dive-in / back-off rhythm, with no cart to hide behind.
+    h.stoke = moving ? 0 : h.stoke + dt;
+    h.stoking = h.stoke >= STOKE_DELAY;
+
+    // Munna walks the street forward whether or not he is moving laterally.
+    this.scroll += this.walkSpeed * dt;
+
+    h.sizzle = h.heat / this.stats.heatMax;
+
+    if (h.aromaCd > 0) h.aromaCd -= dt;
     if (input.takeAroma()) this.tadka();
   }
 
   /** Aroma: pull the crowd in and mark them. Aggro as a weapon. */
   tadka() {
-    const v = this.vendor;
-    if (v.aromaCd > 0) return false;
-    v.aromaCd = this.stats.aromaCd;
-    this.fx('aroma', { x: v.x, y: v.y, r: this.aromaRadius, life: 0.75 });
+    const h = this.hero;
+    if (h.aromaCd > 0) return false;
+    h.aromaCd = this.stats.aromaCd;
+    // Chennai's sea wind (and Goa's) drags the cone off-centre.
+    const wx = this.mods.windX ?? 0;
+    const cx = h.x + wx * 0.5;
+    this.fx('aroma', { x: cx, y: h.y, r: this.aromaRadius, life: 0.75 });
     this.shake = Math.max(this.shake, 0.35);
     let pulled = 0;
     const targets = this.boss ? [...this.customers, this.boss] : this.customers;
     for (const c of targets) {
-      if (dist(c.x, c.y, v.x, v.y) > this.aromaRadius) continue;
+      if (dist(c.x, c.y, cx, h.y) > this.aromaRadius) continue;
       c.markT = 4;
       if (c.kind !== 'boss') { c.pullT = 1.35; pulled++; }
     }
-    if (pulled) this.fx('text', { x: v.x, y: v.y - 30, text: `${pulled} PULLED`, color: '#ffcf5c', life: 0.9 });
+    if (pulled) this.fx('text', { x: h.x, y: h.y - 30, text: `${pulled} PULLED`, color: '#ff8a00', life: 0.9 });
     return true;
   }
 
-  /* ----------------------------------------------------------------- cart */
-
-  updateCart(dt) {
-    const c = this.cart;
-    let follow = this.city.cartFollow;
-    if (this.inPuddle(c.x, c.y)) follow *= 0.42;
-    c.x += (this.vendor.x - c.x) * follow * dt;
-    c.x = clamp(c.x, this.lane.x0 + c.w / 2, this.lane.x1 - c.w / 2);
-    // The cart trails you up and down the lane too — that's what makes it an
-    // anchor you drag rather than a turret you park at.
-    const wantY = clamp(this.vendor.y + 48, this.H * 0.48, this.H * 0.82);
-    c.y += (wantY - c.y) * follow * 0.8 * dt;
-    c.tilt = clamp((this.vendor.x - c.x) * 0.004, -0.14, 0.14);
-    if (c.hitFlash > 0) c.hitFlash -= dt;
-
-    let push = this.pushSpeed;
-    if (this.inPuddle(c.x, c.y)) push *= 0.5;
-    this.scroll += push * dt;
-
-    // Sizzle level is the audio/visual read on heat.
-    c.sizzle = this.vendor.heat / this.stats.heatMax;
-  }
-
-  damageCart(amount, src) {
+  damageHero(amount, srcName) {
     if (this.state !== 'playing') return;
-    const dmg = amount * this.cartArmour;
-    this.cart.hp -= dmg;
-    this.cart.hitFlash = 0.18;
+    const h = this.hero;
+    if (h.invuln > 0) return;
+    h.hp -= amount * this.armour;
+    h.hitFlash = 0.2;
+    h.invuln = 0.28;          // a mob of twenty cannot delete you in one frame
     this.shake = Math.max(this.shake, 0.4);
-    if (this.cart.hp <= 0) {
-      this.cart.hp = 0;
+    if (h.hp <= 0) {
+      h.hp = 0;
       this.state = 'over';
       this.hooks.onGameOver({
-        reason: 'tipped', money: this.money, served: this.served, stop: this.stopIndex + 1,
+        reason: 'mobbed', money: this.money, served: this.served,
+        stop: this.stopIndex + 1, by: srcName,
       });
     }
   }
 
-  stealFromCart(dog) {
-    this.vendor.heat = Math.max(0, this.vendor.heat - 15);
-    this.cart.hp = Math.max(1, this.cart.hp - 3);
-    this.cart.hitFlash = 0.12;
-    this.fx('text', { x: this.cart.x, y: this.cart.y - 34, text: 'CHORI!', color: '#ff8a4a', life: 0.8 });
+  /** Strays take heat off the tawa; monkeys take the cash. */
+  robbed(thief) {
+    const h = this.hero;
+    if (thief.def.steals === 'coins') {
+      const take = Math.min(this.money, 4 + Math.floor(this.money * 0.04));
+      this.money -= take;
+      this.robbedOf += take;
+      this.fx('text', { x: h.x, y: h.y - 34, text: take ? `−₹${take}` : 'MISSED', color: '#ff3b30', life: 0.8 });
+    } else {
+      h.heat = Math.max(0, h.heat - 16);
+      this.fx('text', { x: h.x, y: h.y - 34, text: 'CHORI!', color: '#ff8a00', life: 0.8 });
+    }
+    h.hitFlash = 0.14;
   }
 
   /* ----------------------------------------------------------------- heat */
 
   updateHeat(dt) {
-    const v = this.vendor;
-    const near = dist(v.x, v.y, this.cart.x, this.cart.y) < HEAT_ZONE;
-    if (near) v.heat += this.stats.heatRegen * dt;
-    v.heat -= (this.city.heatDrain ?? 0) * dt;    // the Mumbai rain
-    v.heat = clamp(v.heat, 0, this.stats.heatMax);
-    const wasCold = v.cold;
-    v.cold = v.heat <= 0.6;
-    if (v.cold && !wasCold) {
-      this.fx('text', { x: v.x, y: v.y - 30, text: 'COLD TAWA', color: '#7fb8ff', life: 1.1 });
+    const h = this.hero;
+    const regen = this.stats.heatRegen * (h.stoking ? 1 : this.stats.idleRegen);
+    h.heat += regen * dt;
+    h.heat -= (this.mods.heatDrain ?? 0) * dt;     // the Mumbai rain, the Chennai wind
+    if (this.inPatch(h.x, h.y, 'heal')) {
+      h.hp = Math.min(h.maxHp, h.hp + 9 * dt);     // Amritsar langar
+      h.heat += 10 * dt;
+    }
+    h.heat = clamp(h.heat, 0, this.stats.heatMax);
+    const wasCold = h.cold;
+    h.cold = h.heat <= 0.6;
+    if (h.cold && !wasCold) {
+      this.fx('text', { x: h.x, y: h.y - 30, text: 'COLD TAWA', color: '#2e86ab', life: 1.1 });
     }
   }
 
-  nearCart() {
-    return dist(this.vendor.x, this.vendor.y, this.cart.x, this.cart.y) < HEAT_ZONE;
-  }
+  stoking() { return this.hero.stoking; }
 
   /* -------------------------------------------------------------- firing */
 
@@ -279,7 +296,7 @@ export class World {
     for (const c of this.customers) {
       const a = c.def.aura;
       if (!a) continue;
-      if (dist(c.x, c.y, this.vendor.x, this.vendor.y) < a.radius) {
+      if (dist(c.x, c.y, this.hero.x, this.hero.y) < a.radius) {
         p = Math.min(p, 1 - a.fireRatePenalty);
       }
     }
@@ -295,7 +312,7 @@ export class World {
   pickTarget(range, cat) {
     let best = null, bestD = Infinity;
     let match = null, matchD = Infinity;
-    const vx = this.vendor.x, vy = this.vendor.y;
+    const vx = this.hero.x, vy = this.hero.y;
     for (const c of this.targets()) {
       if (c.hp <= 0) continue;
       const d = dist(c.x, c.y, vx, vy);
@@ -307,16 +324,17 @@ export class World {
   }
 
   fireDish(slot, def) {
-    const v = this.vendor;
+    const h = this.hero;
     const lvl = slot.level;
 
     if (def.behaviour === 'support') {
-      const repair = dishStat(def, 'repair', lvl);
+      const heal = dishStat(def, 'repair', lvl);
       const back = dishStat(def, 'heatBack', lvl);
-      this.cart.hp = Math.min(this.cart.maxHp, this.cart.hp + repair);
-      v.heat = clamp(v.heat + back, 0, this.stats.heatMax);
-      this.fx('text', { x: v.x, y: v.y - 28, text: 'CUTTING CHAI', color: '#9ee6ff', life: 0.8 });
-      this.fx('ring', { x: v.x, y: v.y, r: 60, color: '#9ee6ff', life: 0.5 });
+      if (h.hp >= h.maxHp && h.heat >= this.stats.heatMax) return false;
+      h.hp = Math.min(h.maxHp, h.hp + heal);
+      h.heat = clamp(h.heat + back, 0, this.stats.heatMax);
+      this.fx('text', { x: h.x, y: h.y - 28, text: 'CUTTING CHAI', color: '#0f9b8e', life: 0.8 });
+      this.fx('ring', { x: h.x, y: h.y, r: 60, color: '#0f9b8e', life: 0.5 });
       return true;
     }
 
@@ -325,19 +343,19 @@ export class World {
     if (!target) return false;
 
     const cost = (def.heat ?? 0) * this.stats.heatCostMult;
-    v.heat = Math.max(0, v.heat - cost);
+    h.heat = Math.max(0, h.heat - cost);
 
-    const coldK = v.cold ? 0.5 : 1;
+    const coldK = h.cold ? 0.5 : 1;
     const dmg = dishStat(def, 'dmg', lvl) * this.stats.dmgMult * coldK;
     const aoe = (dishStat(def, 'aoe', lvl) ?? 0) * this.stats.aoeMult;
 
-    const ang = Math.atan2(target.y - v.y, target.x - v.x);
+    const ang = Math.atan2(target.y - h.y, target.x - h.x);
 
     switch (def.behaviour) {
       case 'straight':
       case 'dot': {
         const p = makeProjectile({
-          behaviour: def.behaviour, x: v.x, y: v.y,
+          behaviour: def.behaviour, x: h.x, y: h.y,
           vx: Math.cos(ang) * def.speed, vy: Math.sin(ang) * def.speed,
           dmg, cat: def.cat, emoji: def.emoji, r: def.radius ?? 8,
           pierce: Math.floor(dishStat(def, 'pierce', lvl) ?? 0),
@@ -351,9 +369,9 @@ export class World {
         break;
       }
       case 'lob': {
-        const d = dist(v.x, v.y, target.x, target.y);
+        const d = dist(h.x, h.y, target.x, target.y);
         this.projectiles.push(makeProjectile({
-          behaviour: 'lob', x: v.x, y: v.y, sx: v.x, sy: v.y,
+          behaviour: 'lob', x: h.x, y: h.y, sx: h.x, sy: h.y,
           tx: target.x, ty: target.y, t: 0,
           flight: Math.max(0.28, d / def.speed), arc: 0, arcH: 40 + d * 0.16,
           dmg, cat: def.cat, emoji: def.emoji, aoe, r: 9, life: 4,
@@ -366,7 +384,7 @@ export class World {
         for (let i = 0; i < n; i++) {
           const a = ang - spread / 2 + (spread * i) / Math.max(1, n - 1);
           this.projectiles.push(makeProjectile({
-            behaviour: 'straight', x: v.x, y: v.y,
+            behaviour: 'straight', x: h.x, y: h.y,
             vx: Math.cos(a) * def.speed, vy: Math.sin(a) * def.speed,
             dmg, cat: def.cat, emoji: def.emoji, r: 6, hit: new Set(),
             life: range / def.speed + 0.1,
@@ -376,7 +394,7 @@ export class World {
       }
       case 'chain': {
         this.projectiles.push(makeProjectile({
-          behaviour: 'chain', x: v.x, y: v.y,
+          behaviour: 'chain', x: h.x, y: h.y,
           vx: Math.cos(ang) * def.speed, vy: Math.sin(ang) * def.speed,
           dmg, cat: def.cat, emoji: def.emoji, r: 8, hit: new Set(),
           jumps: Math.floor(dishStat(def, 'jumps', lvl)), jumpRange: def.jumpRange,
@@ -386,7 +404,7 @@ export class World {
       }
       case 'zone': {
         this.zones.push(makeZone(target.x, target.y, aoe, dmg, def.duration, def.cat));
-        this.fx('ring', { x: target.x, y: target.y, r: aoe, color: '#ffb74d', life: 0.4 });
+        this.fx('ring', { x: target.x, y: target.y, r: aoe, color: '#ff8a00', life: 0.4 });
         break;
       }
     }
@@ -414,7 +432,7 @@ export class World {
             const sp = Math.hypot(p.vx, p.vy);
             p.vx = Math.cos(a) * sp; p.vy = Math.sin(a) * sp;
             p.jumps--; p.life = 1.0;
-            this.fx('line', { x: p.x, y: p.y, x2: next.x, y2: next.y, color: '#c9f5a0', life: 0.18 });
+            this.fx('line', { x: p.x, y: p.y, x2: next.x, y2: next.y, color: '#3fb6a8', life: 0.18 });
             continue;
           }
           p.dead = true;
@@ -459,7 +477,7 @@ export class World {
           this.damage(c, z.dps * 0.25, z.cat, { silent: true });
         }
       }
-      z.y += this.pushSpeed * 0.35 * dt;
+      z.y += this.walkSpeed * 0.35 * dt;
     }
     this.zones = this.zones.filter((z) => z.life > 0);
   }
@@ -491,7 +509,7 @@ export class World {
 
     if (!opts.silent && cat && target.craving && !matched) {
       if (Math.random() < 0.25) {
-        this.fx('text', { x: target.x, y: target.y - 20, text: 'wrong order', color: '#9aa5b1', life: 0.6, small: true });
+        this.fx('text', { x: target.x, y: target.y - 20, text: 'wrong order', color: '#6b5e52', life: 0.6, small: true });
       }
     }
 
@@ -505,7 +523,8 @@ export class World {
       this.fx('boom', { x: c.x, y: c.y, r: 140, life: 0.7 });
       this.state = 'won';
       this.hooks.onVictory({
-        money: this.money, served: this.served, city: this.city, time: this.runTime,
+        money: this.money, served: this.served, city: this.city,
+        time: this.runTime, page: pageFor(this.city.id),
       });
       return;
     }
@@ -514,7 +533,7 @@ export class World {
     this.served++;
 
     if (c.def.thief) {
-      this.fx('text', { x: c.x, y: c.y, text: 'SHOOED', color: '#c0c8d0', life: 0.7 });
+      this.fx('text', { x: c.x, y: c.y, text: 'SHOOED', color: '#6b5e52', life: 0.7 });
       this.pickups.push(makePickup('xp', c.x, c.y, c.def.xp));
       return;
     }
@@ -522,10 +541,10 @@ export class World {
     // Served fresh — before their patience burned down — pays a premium.
     const fresh = c.patienceMax > 0 && c.patience > c.patienceMax * 0.5;
     const payMult = (fresh ? 1.45 : 1) * (matched ? 1.25 : 0.85);
-    const pay = Math.max(1, Math.round(c.def.pay * payMult * this.payMult * (this.city.payMult ?? 1)));
+    const pay = Math.max(1, Math.round(c.def.pay * payMult * this.payMult * (this.mods.payMult ?? 1)));
 
     this.fx('pop', { x: c.x, y: c.y, emoji: '\u{1F60C}', life: 0.55 });
-    if (fresh) this.fx('text', { x: c.x, y: c.y - 24, text: 'GARAM GARAM!', color: '#ffd166', life: 0.8, small: true });
+    if (fresh) this.fx('text', { x: c.x, y: c.y - 24, text: 'GARAM GARAM!', color: '#ff8a00', life: 0.8, small: true });
 
     this.pickups.push(makePickup('coin', c.x, c.y, pay));
     this.pickups.push(makePickup('xp', c.x + rand(10, -10), c.y, c.def.xp));
@@ -534,7 +553,7 @@ export class World {
   collect(pu) {
     if (pu.type === 'coin') {
       this.money += pu.value;
-      this.fx('text', { x: pu.x, y: pu.y - 8, text: `+${pu.value}`, color: '#ffd166', life: 0.55, small: true });
+      this.fx('text', { x: pu.x, y: pu.y - 8, text: `+${pu.value}`, color: '#e6a100', life: 0.55, small: true });
     } else {
       this.xp += pu.value;
       while (this.xp >= this.xpNext) {
@@ -563,39 +582,77 @@ export class World {
   /* ---------------------------------------------------------- ingredients */
 
   takeIngredient(id) {
-    const v = this.vendor;
+    const h = this.hero;
     for (const r of RECIPES) {
       const other = r.a === id ? r.b : r.b === id ? r.a : null;
       if (!other) continue;
-      const idx = v.ingredients.indexOf(other);
+      const idx = h.ingredients.indexOf(other);
       if (idx === -1) continue;
-      v.ingredients.splice(idx, 1);
-      const slot = addDish(v, r.dish);
+      h.ingredients.splice(idx, 1);
+      addDish(h, r.dish);
       const d = DISHES[r.dish];
       this.hooks.onBanner(`${INGREDIENTS[r.a].name} + ${INGREDIENTS[r.b].name}`, `${d.emoji}  ${d.name.toUpperCase()}!`);
-      this.fx('text', { x: v.x, y: v.y - 34, text: d.name.toUpperCase(), color: '#7CFF9B', life: 1.2 });
+      this.fx('text', { x: h.x, y: h.y - 34, text: d.name.toUpperCase(), color: '#0f9b8e', life: 1.2 });
       return { paired: true, dish: r.dish };
     }
-    v.ingredients.push(id);
+    h.ingredients.push(id);
     return { paired: false };
   }
 
   /* ------------------------------------------------------------- hazards */
 
   updateHazards(dt) {
-    if (this.city.hazard !== 'puddles') return;
-    for (const p of this.puddles) p.y += this.pushSpeed * dt;
-    this.puddles = this.puddles.filter((p) => p.y < this.H + 80);
-    if (this.puddles.length < 3 && Math.random() < dt * 1.6) {
-      this.puddles.push({
-        x: rand(this.lane.x1 - 40, this.lane.x0 + 40),
-        y: -70, rx: rand(74, 40), ry: rand(30, 16),
-      });
+    const hz = this.city.hazard;
+    if (!hz) return;
+
+    if (hz.patch) {
+      const cfg = hz.patch;
+      for (const p of this.patches) p.y += this.walkSpeed * dt;
+      this.patches = this.patches.filter((p) => p.y < this.H + 90);
+      if (this.patches.length < cfg.max && Math.random() < dt * 1.5) {
+        this.patches.push({
+          x: rand(this.lane.x1 - 46, this.lane.x0 + 46),
+          y: -80, rx: rand(78, 42), ry: rand(32, 17),
+          effect: cfg.effect, skin: cfg.skin,
+        });
+      }
+    }
+
+    if (hz.sweeper) {
+      const cfg = hz.sweeper;
+      this.sweepT -= dt;
+      if (this.sweepT <= 0) {
+        this.sweepT = cfg.every;
+        const fromLeft = Math.random() < 0.5;
+        this.sweepers.push({
+          x: fromLeft ? this.lane.x0 - 60 : this.lane.x1 + 60,
+          y: rand(this.H * 0.72, this.H * 0.26),
+          dir: fromLeft ? 1 : -1,
+          warn: cfg.warn, cfg, hit: false,
+        });
+        this.banner(cfg.label, 'Get out of the line.');
+      }
+      for (const s of this.sweepers) {
+        if (s.warn > 0) { s.warn -= dt; continue; }
+        s.x += s.dir * s.cfg.speed * dt;
+        if (!s.hit && Math.abs(s.x - this.hero.x) < 44 && Math.abs(s.y - this.hero.y) < 30) {
+          s.hit = true;
+          this.damageHero(s.cfg.dmg, 'the tram');
+          this.hero.slipT = 0.9;
+        }
+        for (const c of this.customers) {
+          if (Math.abs(s.x - c.x) < 42 && Math.abs(s.y - c.y) < 26) this.damage(c, 999, null, { silent: true });
+        }
+      }
+      this.sweepers = this.sweepers.filter(
+        (s) => s.x > this.lane.x0 - 140 && s.x < this.lane.x1 + 140,
+      );
     }
   }
 
-  inPuddle(x, y) {
-    for (const p of this.puddles) {
+  inPatch(x, y, effect) {
+    for (const p of this.patches) {
+      if (p.effect !== effect) continue;
       const dx = (x - p.x) / p.rx, dy = (y - p.y) / p.ry;
       if (dx * dx + dy * dy < 1) return true;
     }
@@ -614,15 +671,15 @@ export class World {
       b.dash.t += dt;
       const k = Math.min(1, b.dash.t / 0.75);
       b.y = b.dash.y0 + (this.H * 0.82 - b.dash.y0) * Math.sin(k * Math.PI);
-      if (dist(b.x, b.y, this.cart.x, this.cart.y) < b.r + 40 && !b.dash.hit) {
+      if (dist(b.x, b.y, this.hero.x, this.hero.y) < b.r + 26 && !b.dash.hit) {
         b.dash.hit = true;
-        this.damageCart(b.dash.dmg, b);
+        this.damageHero(b.dash.dmg, b.def.name);
+        this.hero.slipT = 1.1;
       }
-      if (dist(b.x, b.y, this.vendor.x, this.vendor.y) < b.r + 24) this.vendor.slipT = 1.1;
-      if (k >= 1) { b.dash = null; b.y = this.H * 0.28; }
+      if (k >= 1) { b.dash = null; b.y = this.H * 0.24; }
     } else {
       b.x = this.W / 2 + Math.sin(b.bob * 0.6) * (this.city.lane.width * 0.3);
-      b.y = this.H * 0.28 + Math.sin(b.bob * 1.2) * 10;
+      b.y = this.H * 0.24 + Math.sin(b.bob * 1.2) * 10;
     }
 
     if (b.telegraph) {
@@ -632,8 +689,10 @@ export class World {
         b.telegraph = null;
         if (tg.type === 'lob') {
           this.fx('boom', { x: tg.x, y: tg.y, r: tg.aoe, life: 0.4 });
-          if (dist(this.cart.x, this.cart.y, tg.x, tg.y) < tg.aoe + 26) this.damageCart(tg.dmg, b);
-          if (dist(this.vendor.x, this.vendor.y, tg.x, tg.y) < tg.aoe) this.vendor.slipT = 1.2;
+          if (dist(this.hero.x, this.hero.y, tg.x, tg.y) < tg.aoe) {
+            this.damageHero(tg.dmg, b.def.name);
+            this.hero.slipT = 1.2;
+          }
         } else if (tg.type === 'dash') {
           b.dash = { t: 0, y0: b.y, dmg: tg.dmg, hit: false };
         }
@@ -646,14 +705,14 @@ export class World {
       b.timers[i] = atk.cd;
       if (atk.type === 'spawn') {
         this.spawner.spawnFromTable(atk.table, atk.count);
-        this.fx('text', { x: b.x, y: b.y + 30, text: 'REINFORCEMENTS', color: '#ff8a4a', life: 0.9, small: true });
+        this.fx('text', { x: b.x, y: b.y + 30, text: 'REINFORCEMENTS', color: '#ff3b30', life: 0.9, small: true });
       } else if (atk.type === 'lob') {
         b.telegraph = {
-          type: 'lob', t: atk.telegraph, x: this.cart.x + rand(30, -30), y: this.cart.y + rand(24, -24),
+          type: 'lob', t: atk.telegraph, x: this.hero.x + rand(34, -34), y: this.hero.y + rand(28, -28),
           aoe: atk.aoe, dmg: atk.dmg,
         };
       } else if (atk.type === 'dash') {
-        b.x = clamp(this.cart.x, this.lane.x0 + b.r, this.lane.x1 - b.r);
+        b.x = clamp(this.hero.x, this.lane.x0 + b.r, this.lane.x1 - b.r);
         b.telegraph = { type: 'dash', t: atk.telegraph, dmg: atk.dmg };
       }
     });
@@ -664,8 +723,8 @@ export class World {
   fx(type, o) { this.effects.push(makeFx(type, o)); }
   banner(a, b) { this.hooks.onBanner(a, b); }
 
-  heatPct() { return this.vendor.heat / this.stats.heatMax; }
-  aromaPct() { return 1 - clamp(this.vendor.aromaCd / this.stats.aromaCd, 0, 1); }
-  cartPct() { return clamp(this.cart.hp / this.cart.maxHp, 0, 1); }
+  heatPct() { return this.hero.heat / this.stats.heatMax; }
+  aromaPct() { return 1 - clamp(this.hero.aromaCd / this.stats.aromaCd, 0, 1); }
+  hpPct() { return clamp(this.hero.hp / this.hero.maxHp, 0, 1); }
   xpPct() { return clamp(this.xp / this.xpNext, 0, 1); }
 }

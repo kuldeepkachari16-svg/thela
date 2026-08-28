@@ -62,9 +62,9 @@ const hooks = {
   onVictory: (info) => ui.showVictory(info),
 };
 
-function startRun(cityId, charId) {
+function startRun(cityId) {
   world = new World(LOGICAL_W, LOGICAL_H, hooks);
-  world.start(cityId, charId);
+  world.start(cityId);
   paused = false;
   ui.showGame();
   layout();
@@ -72,16 +72,11 @@ function startRun(cityId, charId) {
 
 function goto(name) {
   paused = false;
-  if (name === 'title') { world = null; ui.show('title'); }
-  else if (name === 'city') {
-    world = null;
-    ui.buildCities((id) => {
-      selectedCity = id;
-      ui.buildChars(id, (charId) => startRun(id, charId));
-      ui.show('char');
-    });
-    ui.show('city');
+  world = null;
+  if (name === 'city') {
+    ui.buildCities((id) => { selectedCity = id; startRun(id); });
   }
+  ui.show(name);
 }
 
 for (const b of document.querySelectorAll('[data-go]')) {
@@ -121,7 +116,10 @@ function frame(now) {
     ui.syncHud(world);
   } else {
     const ctx = renderer.ctx;
-    ctx.fillStyle = '#120b06';
+    const g = ctx.createLinearGradient(0, 0, 0, LOGICAL_H);
+    g.addColorStop(0, '#ffe6a8');
+    g.addColorStop(1, '#ff9a3c');
+    ctx.fillStyle = g;
     ctx.fillRect(0, 0, LOGICAL_W, LOGICAL_H);
   }
   requestAnimationFrame(frame);
@@ -129,7 +127,10 @@ function frame(now) {
 
 /* -------------------------------------------------------------------- pwa */
 
-if ('serviceWorker' in navigator) {
+// #city=... is the headless/debug entry point. The SW's controllerchange
+// reload would fight the deep link, so a debug boot never registers it.
+const bootParams = new URLSearchParams(location.hash.slice(1));
+if ('serviceWorker' in navigator && !bootParams.get('city')) {
   addEventListener('load', () => {
     navigator.serviceWorker.register('./sw.js').then((reg) => {
       // A new build activating means the cached shell is stale — take it once.
@@ -171,7 +172,17 @@ if (isIOS && !standalone) iosHint.classList.remove('hidden');
 /* ------------------------------------------------------------------- boot */
 
 layout();
-goto('title');
+// #city=delhi&t=20 drops straight into a run — used by the headless shot tool.
+const boot = bootParams;
+if (boot.get('city') && CITIES[boot.get('city')]) {
+  startRun(boot.get('city'));
+  const warm = Number(boot.get('t') || 0);
+  if (warm > 0) for (let i = 0; i < warm * 60; i++) {
+    if (world.state === 'playing') world.update(1 / 60, input);
+  }
+} else {
+  goto(boot.get('screen') || 'title');
+}
 requestAnimationFrame(frame);
 
 // Handy for poking at balance from the console — and for driving the game
@@ -180,6 +191,7 @@ window.THELA = {
   get world() { return world; },
   get renderer() { return renderer; },
   startRun, CITIES,
+  goto,
   step(seconds, dt = 1 / 60) {
     const n = Math.round(seconds / dt);
     for (let i = 0; i < n; i++) {

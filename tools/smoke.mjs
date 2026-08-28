@@ -59,7 +59,7 @@ const ui = new UI();
 const seen = new Set();
 const fail = [];
 
-function drive(cityId, charId, label) {
+function drive(cityId, label) {
   let offers = null;
   const w = new World(480, 854, {
     onBanner: (a, b) => { ui.banner(a, b); seen.add('banner'); },
@@ -68,19 +68,22 @@ function drive(cityId, charId, label) {
     onGameOver: (i) => { ui.showOver(i, w.city); seen.add(i.reason); },
     onVictory: (i) => { ui.showVictory(i); seen.add('victory'); },
   });
-  w.start(cityId, charId);
+  w.start(cityId);
 
   const bot = {
     dir() {
-      const v = w.vendor;
-      let tx = w.cart.x, ty = w.cart.y - 34;
-      if (w.heatPct() > 0.5) for (const p of w.pickups) {
+      const v = w.hero;
+      // Stand still to stoke when the tawa is low; otherwise go bank a coin.
+      if (w.heatPct() < 0.45) return { x: 0, y: 0 };
+      let tx = null, ty = null;
+      for (const p of w.pickups) {
         if (Math.hypot(p.x - v.x, p.y - v.y) < 220) { tx = p.x; ty = p.y; break; }
       }
+      if (tx === null) return { x: 0, y: 0 };
       const dx = tx - v.x, dy = ty - v.y, l = Math.hypot(dx, dy) || 1;
       return l < 4 ? { x: 0, y: 0 } : { x: dx / l, y: dy / l };
     },
-    takeAroma() { return w.vendor.aromaCd <= 0; },
+    takeAroma() { return w.hero.aromaCd <= 0; },
     takePause() { return false; },
   };
 
@@ -103,7 +106,7 @@ function drive(cityId, charId, label) {
 }
 
 /** Boss stops get their own world so telegraph/dash/boss-bar draws always run. */
-function driveBoss(cityId, charId, label) {
+function driveBoss(cityId, label) {
   const w = new World(480, 854, {
     onBanner: (a, b) => ui.banner(a, b),
     onLevelUp: (o, lv) => { ui.showOffers(o, lv, () => {}); w.resolveLevelUp(o[0]); },
@@ -111,15 +114,15 @@ function driveBoss(cityId, charId, label) {
     onGameOver: (i) => { ui.showOver(i, w.city); seen.add(i.reason); },
     onVictory: (i) => { ui.showVictory(i); seen.add('victory'); },
   });
-  w.start(cityId, charId);
+  w.start(cityId);
   w.stopIndex = w.city.stops.length - 1;
   w.customers.length = 0;
   w.beginStop();
   w.state = 'playing';
-  // Smoke run, not a balance run: keep the cart alive so the full boss script
+  // Smoke run, not a balance run: keep Munna alive so the full boss script
   // (telegraph → dash → spawn → victory) always gets exercised.
-  w.damageCart = () => {};
-  const bot = { dir: () => ({ x: 0, y: -0.4 }), takeAroma: () => w.vendor.aromaCd <= 0, takePause: () => false };
+  w.damageHero = () => {};
+  const bot = { dir: () => ({ x: 0, y: -0.4 }), takeAroma: () => w.hero.aromaCd <= 0, takePause: () => false };
   const dt = 1 / 60;
   let frames = 0;
   try {
@@ -137,20 +140,18 @@ function driveBoss(cityId, charId, label) {
   return { label, frames, state: w.state, stop: w.stopIndex + 1, served: w.served };
 }
 
+const CITY_IDS = Object.keys((await import('../src/data/cities.js')).CITIES);
 const results = [
-  drive('delhi', 'munna', 'delhi/munna'),
-  drive('delhi', 'pk', 'delhi/pk'),
-  drive('mumbai', 'pk', 'mumbai/pk'),
-  drive('mumbai', 'munna', 'mumbai/munna'),
-  driveBoss('delhi', 'munna', 'delhi/BOSS'),
-  driveBoss('mumbai', 'pk', 'mumbai/BOSS'),
+  ...CITY_IDS.map((id) => drive(id, id)),
+  ...CITY_IDS.map((id) => driveBoss(id, id + '/BOSS')),
 ];
 
-for (const r of results) console.log(`  ${r.label.padEnd(14)} ${String(r.frames).padStart(6)} frames drawn · ended ${r.state} at stop ${r.stop} · ${r.served} served`);
+for (const r of results) console.log(`  ${r.label.padEnd(16)} ${String(r.frames).padStart(6)} frames drawn · ended ${r.state} at stop ${r.stop} · ${r.served} served`);
 
 const wantHooks = ['banner', 'levelup', 'stopclear', 'victory'];
 const missingHooks = wantHooks.filter((h) => !seen.has(h));
-const wantDraws = ['fillRect', 'arc', 'fillText', 'stroke', 'ellipse', 'setLineDash', 'quadraticCurveTo'];
+const wantDraws = ['fillRect', 'arc', 'fillText', 'stroke', 'ellipse', 'setLineDash',
+  'quadraticCurveTo', 'clip', 'rotate', 'translate', 'strokeRect'];
 const missingDraws = wantDraws.filter((d) => !calls.includes(d));
 
 console.log(`\n  canvas ops issued: ${calls.length}`);

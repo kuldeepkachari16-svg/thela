@@ -33,7 +33,7 @@ export const INGREDIENTS = {
  *  chain    - hits, then jumps to nearest unhit targets
  *  zone     - drops a persistent damaging patch on the ground
  *  dot      - applies stacking burn
- *  support  - no damage: repairs the cart and pulses heat back
+ *  support  - no damage: patches Munna up and pulses heat back
  */
 export const DISHES = {
   vadapav: {
@@ -104,7 +104,7 @@ export const DISHES = {
     behaviour: 'support',
     dmg: 0, cd: 7.0, heat: 0, repair: 7, heatBack: 26,
     per: { repair: 3, heatBack: 8 },
-    blurb: 'Not for them. For you and the cart.',
+    blurb: 'Not for them. For you.',
   },
 };
 

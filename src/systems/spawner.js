@@ -4,6 +4,16 @@ import { weighted, rand, randInt, clamp } from '../util.js';
 import { CUSTOMERS } from '../data/customers.js';
 import { makeCustomer } from '../entities.js';
 
+// Ordered by how much the beat belongs to a city: the first entry whose type
+// the city actually spawns is the one that fires.
+const ELITES = [
+  { type: 'student',    label: 'THE ADDA HAS SETTLED IN', sub: 'They are not leaving. Ever.' },
+  { type: 'pilgrim',    label: 'THE SANGAT IS COMING',     sub: 'Everyone eats. That is the rule.' },
+  { type: 'tourist',    label: 'A COACH JUST PARKED',      sub: 'Big money, no patience.' },
+  { type: 'officeRush', label: 'LUNCH RUSH INCOMING',      sub: 'Forty minutes, one lane.' },
+  { type: 'kid',        label: 'SCHOOL JUST LET OUT',      sub: 'Fast, loud, two rupees each.' },
+];
+
 export class Spawner {
   constructor(world) {
     this.w = world;
@@ -20,7 +30,7 @@ export class Spawner {
     const w = this.w;
     const stopK = 1 + w.stopIndex * 0.22;
     const timeK = 1 + (1 - w.stopTimeLeft / Math.max(1, w.stopDuration)) * 0.7;
-    return 0.46 * (w.city.spawnRateMult ?? 1) * stopK * timeK;
+    return 0.46 * (w.mods.spawnRateMult ?? 1) * stopK * timeK;
   }
 
   difficulty() {
@@ -80,12 +90,14 @@ export class Spawner {
     }
   }
 
+  /** One elite beat per stop, phrased in the city's own voice. */
   spawnElite() {
     const w = this.w;
-    const kind = Math.random() < 0.5 ? 'officeRush' : 'kid';
-    const available = w.city.spawnTable.some((s) => s.v === kind) ? kind : w.city.spawnTable[0].v;
-    w.banner(available === 'officeRush' ? 'LUNCH RUSH INCOMING' : 'SCHOOL JUST LET OUT');
-    for (let i = 0; i < 3; i++) this.spawnOne(available);
+    const table = w.city.spawnTable.map((s) => s.v);
+    const pick = ELITES.find((e) => table.includes(e.type)) ?? ELITES[ELITES.length - 1];
+    const type = table.includes(pick.type) ? pick.type : table[0];
+    w.banner(pick.label, pick.sub);
+    for (let i = 0; i < 3; i++) this.spawnOne(type);
   }
 
   /** Used by boss 'spawn' attacks. */

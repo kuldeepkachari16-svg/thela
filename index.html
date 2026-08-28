@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-<meta name="theme-color" content="#120b06" />
-<meta name="description" content="A forward-scrolling survivor set on Indian streets. You don't kill the crowd, you feed it." />
+<meta name="theme-color" content="#ffd9a0" />
+<meta name="description" content="Munna walks eight Indian cities to win back his grandmother's recipe book. You don't kill the crowd, you feed it." />
 <link rel="manifest" href="./manifest.webmanifest" />
 <link rel="icon" href="./icons/favicon-64.png" sizes="64x64" />
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
@@ -43,6 +43,7 @@
 
     <div class="hud-bottom">
       <div id="dishRow" class="dishrow"></div>
+      <div class="hpbar"><i id="hpFill"></i><span id="hpLabel">120</span></div>
       <div class="heatrow">
         <div class="heatbar"><i id="heatFill"></i><span id="heatLabel">GARAM</span></div>
         <button id="aromaBtn" class="aroma" aria-label="Tadka">
@@ -59,25 +60,31 @@
     <section id="scrTitle" class="screen">
       <div class="logo">THELA</div>
       <div class="sub">street food survivors</div>
-      <p class="tag">You don’t kill the crowd. You feed it.</p>
-      <button class="big" data-go="city">START A ROUTE</button>
-      <p class="hint">WASD / arrows to move · SPACE for tadka · drag on touch</p>
+      <p class="tag">Munna lost his grandmother’s cart. He’s walking eight cities to win her recipe book back.</p>
+      <button class="big" data-go="story">BEGIN</button>
+      <button class="ghost" data-go="city">Skip to the map</button>
+      <p class="hint">WASD / arrows to move · SPACE for tadka · drag on touch<br />Stand still to stoke the tawa.</p>
       <button class="ghost hidden" id="btnInstall">Install to home screen</button>
       <p class="hint hidden" id="iosHint">On iPhone: tap <b>Share</b> → <b>Add to Home Screen</b> to play fullscreen and offline.</p>
     </section>
 
-    <section id="scrCity" class="screen hidden">
-      <h2>PICK YOUR CITY</h2>
-      <p class="lede">A city is a rule change, not a skybox.</p>
-      <div id="cityList" class="cards"></div>
+    <section id="scrStory" class="screen hidden">
+      <div class="heroCard">
+        <div class="heroFace">👨‍🍳</div>
+        <div class="heroTitle">MUNNA</div>
+        <div class="heroSub" id="heroName"></div>
+      </div>
+      <div class="story" id="heroStory"></div>
+      <p class="heroHook" id="heroHook"></p>
+      <button class="big" data-go="city">PICK A CITY →</button>
       <button class="ghost" data-go="title">Back</button>
     </section>
 
-    <section id="scrChar" class="screen hidden">
-      <h2>PICK YOUR VENDOR</h2>
-      <p class="lede">The station is the weapon.</p>
-      <div id="charList" class="cards"></div>
-      <button class="ghost" data-go="city">Back</button>
+    <section id="scrCity" class="screen hidden">
+      <h2>EIGHT CITIES, EIGHT PAGES</h2>
+      <p class="lede">A city is a rule change, not a skybox. Pick where Munna walks first.</p>
+      <div id="cityList" class="cards"></div>
+      <button class="ghost" data-go="story">Back</button>
     </section>
 
     <section id="scrLevel" class="screen hidden dim">

@@ -2,7 +2,7 @@
 // Cache-first over a fully precached shell: the whole game is static, so once
 // it is installed it plays with the aeroplane mode on.
 
-const CACHE = 'thela-l03y26';
+const CACHE = 'thela-36berd';
 const ASSETS = [
   "./",
   "./css/style.css",
@@ -13,10 +13,10 @@ const ASSETS = [
   "./icons/icon-maskable-512.png",
   "./index.html",
   "./manifest.webmanifest",
-  "./src/data/characters.js",
   "./src/data/cities.js",
   "./src/data/customers.js",
   "./src/data/dishes.js",
+  "./src/data/hero.js",
   "./src/entities.js",
   "./src/game.js",
   "./src/input.js",
