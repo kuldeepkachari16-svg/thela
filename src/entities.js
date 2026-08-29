@@ -51,6 +51,8 @@ export function makeCustomer(typeId, x, y, city, difficulty = 1) {
     speed: t.speed,
     slowT: 0, slowMult: 1,
     burn: 0, burnT: 0,
+    seedN: Math.random() * 997,   // stable per-customer look seed; without it the
+                                  // drawn figure would re-roll its skin tone every frame
     markT: 0,            // aroma mark: takes more damage, stops caring what it ordered
     pullT: 0,            // aroma pull: sprints at Munna
     queueA: rand(Math.PI * 2),   // its own seat in the ring around him

@@ -2,7 +2,7 @@
 // Cache-first over a fully precached shell: the whole game is static, so once
 // it is installed it plays with the aeroplane mode on.
 
-const CACHE = 'thela-36berd';
+const CACHE = 'thela-sykjp';
 const ASSETS = [
   "./",
   "./css/style.css",

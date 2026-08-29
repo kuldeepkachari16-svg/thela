@@ -151,7 +151,10 @@ for (const r of results) console.log(`  ${r.label.padEnd(16)} ${String(r.frames)
 const wantHooks = ['banner', 'levelup', 'stopclear', 'victory'];
 const missingHooks = wantHooks.filter((h) => !seen.has(h));
 const wantDraws = ['fillRect', 'arc', 'fillText', 'stroke', 'ellipse', 'setLineDash',
-  'quadraticCurveTo', 'clip', 'rotate', 'translate', 'strokeRect'];
+  'quadraticCurveTo', 'clip', 'rotate', 'translate',
+  // the ground-plane projection: every actor and every road mark goes through
+  // a scaled transform and a closed path now, so these are the load-bearing ops
+  'scale', 'closePath', 'moveTo', 'lineTo'];
 const missingDraws = wantDraws.filter((d) => !calls.includes(d));
 
 console.log(`\n  canvas ops issued: ${calls.length}`);

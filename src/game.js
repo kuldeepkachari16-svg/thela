@@ -16,6 +16,8 @@ import { Spawner } from './systems/spawner.js';
 import { rollOffers, xpForLevel } from './systems/levelup.js';
 
 export const STOKE_DELAY = 0.18;   // how long you must hold still before the coals catch
+export const STREAK_WINDOW = 3.2;  // grace on a cold streak; it tightens as the streak climbs
+export const BHEED_MIN = 5;        // crowd size that makes a tadka worth holding for
 
 export class World {
   constructor(W, H, hooks) {
@@ -61,8 +63,12 @@ export class World {
     this.scroll = 0;
     this.walkSpeed = 46;
     this.shake = 0;
+    this.streak = 0;          // consecutive GARAM GARAM serves
+    this.streakT = 0;         // time left on the current streak
+    this.streakBest = 0;
     this.flipped = false;
     this._firePenalty = 1;
+    this._wrongHintT = 0;
 
     this.stopIndex = 0;
     this.spawner = new Spawner(this);
@@ -123,7 +129,7 @@ export class World {
   bail() {
     this.money = Math.floor(this.money * 0.5);
     this.state = 'over';
-    this.hooks.onGameOver({ reason: 'bailed', money: this.money, served: this.served, stop: this.stopIndex + 1 });
+    this.hooks.onGameOver({ reason: 'bailed', money: this.money, served: this.served, stop: this.stopIndex + 1, best: this.streakBest });
   }
 
   /* ---------------------------------------------------------------- frame */
@@ -133,6 +139,8 @@ export class World {
 
     this.runTime += dt;
     if (this.shake > 0) this.shake = Math.max(0, this.shake - dt * 3);
+    this.updateStreak(dt);
+    if (this._wrongHintT > 0) this._wrongHintT -= dt;
 
     this.updateHazards(dt);
     this.updateHero(dt, input);
@@ -223,14 +231,28 @@ export class World {
     const cx = h.x + wx * 0.5;
     this.fx('aroma', { x: cx, y: h.y, r: this.aromaRadius, life: 0.75 });
     this.shake = Math.max(this.shake, 0.35);
-    let pulled = 0;
     const targets = this.boss ? [...this.customers, this.boss] : this.customers;
-    for (const c of targets) {
-      if (dist(c.x, c.y, cx, h.y) > this.aromaRadius) continue;
-      c.markT = 4;
-      if (c.kind !== 'boss') { c.pullT = 1.35; pulled++; }
+    const inRange = targets.filter((c) => dist(c.x, c.y, cx, h.y) <= this.aromaRadius);
+    const pulled = inRange.filter((c) => c.kind !== 'boss').length;
+
+    // A bigger crowd smells it for longer — tadka pays for being held until one
+    // forms, instead of being dumped the moment it comes off cooldown.
+    const markT = Math.min(6.5, 4 + Math.max(0, pulled - 4) * 0.12);
+    for (const c of inRange) {
+      c.markT = markT;
+      if (c.kind !== 'boss') c.pullT = 1.35;
     }
-    if (pulled) this.fx('text', { x: h.x, y: h.y - 30, text: `${pulled} PULLED`, color: '#ff8a00', life: 0.9 });
+
+    if (pulled >= BHEED_MIN) {
+      // The smell works the coals: a real crowd hands you heat back.
+      const back = Math.min(30, pulled * 2.5);
+      h.heat = clamp(h.heat + back, 0, this.stats.heatMax);
+      this.fx('text', { x: h.x, y: h.y - 30, text: `BHEED! ${pulled} · +${Math.round(back)} heat`, color: '#ff8a00', life: 1.1 });
+      this.fx('ring', { x: h.x, y: h.y, r: this.aromaRadius * 0.6, color: '#ff8a00', life: 0.45 });
+      this.shake = Math.max(this.shake, 0.5);
+    } else if (pulled) {
+      this.fx('text', { x: h.x, y: h.y - 30, text: `${pulled} PULLED`, color: '#ff8a00', life: 0.9 });
+    }
     return true;
   }
 
@@ -242,12 +264,13 @@ export class World {
     h.hitFlash = 0.2;
     h.invuln = 0.28;          // a mob of twenty cannot delete you in one frame
     this.shake = Math.max(this.shake, 0.4);
+    this.endStreak(true);     // greed has a price: one hit and the streak is gone
     if (h.hp <= 0) {
       h.hp = 0;
       this.state = 'over';
       this.hooks.onGameOver({
         reason: 'mobbed', money: this.money, served: this.served,
-        stop: this.stopIndex + 1, by: srcName,
+        stop: this.stopIndex + 1, by: srcName, best: this.streakBest,
       });
     }
   }
@@ -482,6 +505,58 @@ export class World {
     this.zones = this.zones.filter((z) => z.life > 0);
   }
 
+  /* --------------------------------------------------------------- streak */
+
+  // The greed engine. Serving fresh is worth more than serving at all, and
+  // serving fresh *in a row* is worth more again — so the play is to bait a
+  // cluster, tadka it, and clear the whole thing before anyone sours.
+  updateStreak(dt) {
+    if (this.streak <= 0) return;
+    this.streakT -= dt;
+    if (this.streakT <= 0) this.endStreak(false);
+  }
+
+  /** 1x at no streak, climbing to 1.6x by 12. Applies to both pay and xp. */
+  streakMult() {
+    return 1 + Math.min(this.streak, 12) * 0.05;
+  }
+
+  /**
+   * The window tightens as the streak climbs — 3.2s cold, 1.2s once you're
+   * deep. That's what stops a hot streak from being the default state: past a
+   * point you have to keep finding fresh customers faster than they sour.
+   */
+  streakWindow() {
+    return Math.max(1.2, STREAK_WINDOW - this.streak * 0.08);
+  }
+
+  bumpStreak(c) {
+    this.streak++;
+    this.streakT = this.streakWindow();
+    if (this.streak > this.streakBest) this.streakBest = this.streak;
+    // Call out the tiers rather than every single serve.
+    if (this.streak % 5 === 0) {
+      this.fx('text', {
+        x: this.hero.x, y: this.hero.y - 44,
+        text: `${this.streak} HOT · ${this.streakMult().toFixed(2)}x`,
+        color: '#ff8a00', life: 1,
+      });
+      this.shake = Math.max(this.shake, 0.25);
+    }
+  }
+
+  endStreak(dropped) {
+    if (this.streak >= 5) {
+      this.fx('text', {
+        x: this.hero.x, y: this.hero.y - 44,
+        text: dropped ? `STREAK DROPPED · ${this.streak}` : `${this.streak} COOLED`,
+        color: dropped ? '#ff3b30' : '#6b5e52', life: 0.9, small: true,
+      });
+    }
+    this.streak = 0;
+    this.streakT = 0;
+  }
+
   /* --------------------------------------------------------------- damage */
 
   /** Order matching lives here: the right dish is worth double the wrong one. */
@@ -507,10 +582,13 @@ export class World {
     target.hp -= final;
     target.hitFlash = 0.12;
 
-    if (!opts.silent && cat && target.craving && !matched) {
-      if (Math.random() < 0.25) {
-        this.fx('text', { x: target.x, y: target.y - 20, text: 'wrong order', color: '#6b5e52', life: 0.6, small: true });
-      }
+    // A wrong order is only worth saying out loud when the player can do
+    // something about it — firing is automatic, so the fix is always tadka.
+    // Scolding them while tadka is on cooldown just reads as noise.
+    if (!opts.silent && cat && target.craving && !matched
+        && this.hero.aromaCd <= 0 && this._wrongHintT <= 0) {
+      this._wrongHintT = 2.6;
+      this.fx('text', { x: target.x, y: target.y - 22, text: 'wrong order → TADKA', color: '#ff8a00', life: 1.1, small: true });
     }
 
     if (target.hp <= 0) this.satisfy(target, matched);
@@ -524,7 +602,7 @@ export class World {
       this.state = 'won';
       this.hooks.onVictory({
         money: this.money, served: this.served, city: this.city,
-        time: this.runTime, page: pageFor(this.city.id),
+        time: this.runTime, page: pageFor(this.city.id), best: this.streakBest,
       });
       return;
     }
@@ -538,16 +616,22 @@ export class World {
       return;
     }
 
-    // Served fresh — before their patience burned down — pays a premium.
+    // Served fresh — before their patience burned down — pays a premium, and
+    // keeps the streak alive. Serving a soured customer pays, but cools you.
     const fresh = c.patienceMax > 0 && c.patience > c.patienceMax * 0.5;
-    const payMult = (fresh ? 1.45 : 1) * (matched ? 1.25 : 0.85);
+    if (fresh) this.bumpStreak(c);
+    const streakMult = this.streakMult();
+    const payMult = (fresh ? 1.45 : 1) * (matched ? 1.25 : 0.85) * streakMult;
     const pay = Math.max(1, Math.round(c.def.pay * payMult * this.payMult * (this.mods.payMult ?? 1)));
+    const xp = Math.max(1, Math.round(c.def.xp * streakMult));
 
     this.fx('pop', { x: c.x, y: c.y, emoji: '\u{1F60C}', life: 0.55 });
-    if (fresh) this.fx('text', { x: c.x, y: c.y - 24, text: 'GARAM GARAM!', color: '#ff8a00', life: 0.8, small: true });
+    if (fresh && this.streak % 5 !== 0) {
+      this.fx('text', { x: c.x, y: c.y - 24, text: 'GARAM GARAM!', color: '#ff8a00', life: 0.8, small: true });
+    }
 
     this.pickups.push(makePickup('coin', c.x, c.y, pay));
-    this.pickups.push(makePickup('xp', c.x + rand(10, -10), c.y, c.def.xp));
+    this.pickups.push(makePickup('xp', c.x + rand(10, -10), c.y, xp));
   }
 
   collect(pu) {

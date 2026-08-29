@@ -15,6 +15,8 @@ export class UI {
       lvl: $('lvl'), money: $('money'), served: $('served'), cityRule: $('cityRule'),
       hpFill: $('hpFill'), hpLabel: $('hpLabel'),
       bossWrap: $('bossWrap'), bossName: $('bossName'), bossFill: $('bossFill'),
+      streakWrap: $('streakWrap'), streakN: $('streakN'),
+      streakX: $('streakX'), streakFill: $('streakFill'),
       banner: $('banner'), bannerA: $('bannerA'), bannerB: $('bannerB'),
       dishRow: $('dishRow'), ingRow: $('ingRow'),
       heatFill: $('heatFill'), heatLabel: $('heatLabel'),
@@ -105,6 +107,17 @@ export class UI {
       e.bossWrap.classList.add('hidden');
     }
 
+    // The streak only earns HUD space once it's actually worth protecting.
+    if (w.streak >= 2) {
+      e.streakWrap.classList.remove('hidden');
+      e.streakWrap.classList.toggle('hot', w.streak >= 10);
+      e.streakN.textContent = `\u{1F525} ${w.streak} HOT`;
+      e.streakX.textContent = `${w.streakMult().toFixed(2)}x`;
+      e.streakFill.style.width = `${Math.max(0, (w.streakT / w.streakWindow()) * 100)}%`;
+    } else {
+      e.streakWrap.classList.add('hidden');
+    }
+
     e.xpFill.style.width = `${w.xpPct() * 100}%`;
     e.lvl.textContent = `Lv ${w.level}`;
     e.money.textContent = `₹${w.money}`;
@@ -176,7 +189,8 @@ export class UI {
     this.el.overStats.innerHTML = `
       <div><b>₹${info.money}</b><span>banked</span></div>
       <div><b>${info.served}</b><span>served</span></div>
-      <div><b>${info.stop}/${city.stops.length}</b><span>stops</span></div>`;
+      <div><b>${info.stop}/${city.stops.length}</b><span>stops</span></div>
+      <div><b>\u{1F525}${info.best ?? 0}</b><span>best streak</span></div>`;
     this.screens.over.classList.remove('hidden');
   }
 
@@ -186,7 +200,8 @@ export class UI {
     this.el.overStats.innerHTML = `
       <div><b>₹${info.money}</b><span>banked</span></div>
       <div><b>${info.served}</b><span>served</span></div>
-      <div><b>${fmtTime(info.time)}</b><span>route time</span></div>`;
+      <div><b>${fmtTime(info.time)}</b><span>route time</span></div>
+      <div><b>\u{1F525}${info.best ?? 0}</b><span>best streak</span></div>`;
     this.screens.over.classList.remove('hidden');
   }
 }

@@ -99,7 +99,7 @@ function run(cityId, seconds = 600) {
   }
   return {
     city: cityId, t: +t.toFixed(0), stop: w.stopIndex + 1,
-    level: w.level, money: w.money, served: w.served, maxCrowd,
+    level: w.level, money: w.money, served: w.served, maxCrowd, best: w.streakBest,
     result: w.__won ? 'VICTORY' : w.__over ? w.__over.reason : 'timeout',
     dishes: w.hero.dishes.map(d => DISHES[d.id].name + ':' + d.level).join(' '),
   };
@@ -114,7 +114,7 @@ for (const key of combos) {
     const r = run(key);
     tally[key].n++; tally[key].stops.push(r.stop);
     if (r.result === 'VICTORY') tally[key].win++;
-    if (i === 0) console.log(`${key.padEnd(10)} sample: ${r.result.padEnd(8)} t=${String(r.t).padStart(3)}s stop=${r.stop} lv=${r.level} ₹${r.money} served=${r.served} crowd=${r.maxCrowd} | ${r.dishes}`);
+    if (i === 0) console.log(`${key.padEnd(10)} sample: ${r.result.padEnd(8)} t=${String(r.t).padStart(3)}s stop=${r.stop} lv=${r.level} ₹${r.money} served=${r.served} streak=${r.best} crowd=${r.maxCrowd} | ${r.dishes}`);
   }
 }
 console.log(`\nclear rate over ${process.env.RUNS || 8} runs each:`);

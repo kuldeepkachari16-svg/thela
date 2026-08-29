@@ -17,6 +17,7 @@ const ui = new UI();
 
 let world = null;
 let paused = false;
+let frozen = false;   // debug shots hold the scene still
 let selectedCity = 'delhi';
 
 /* ------------------------------------------------------------------ layout */
@@ -111,7 +112,7 @@ function frame(now) {
   if (input.takePause()) togglePause();
 
   if (world) {
-    if (!paused) world.update(dt, input);
+    if (!paused && !frozen) world.update(dt, input);
     renderer.draw(world, now / 1000);
     ui.syncHud(world);
   } else {
@@ -173,12 +174,28 @@ if (isIOS && !standalone) iosHint.classList.remove('hidden');
 
 layout();
 // #city=delhi&t=20 drops straight into a run — used by the headless shot tool.
+// Adding &shot=1 freezes the world once it is warm: the scene stops evolving,
+// nothing levels up mid-capture and the page goes idle, which is what a
+// screenshot pass needs to be deterministic.
 const boot = bootParams;
 if (boot.get('city') && CITIES[boot.get('city')]) {
   startRun(boot.get('city'));
   const warm = Number(boot.get('t') || 0);
-  if (warm > 0) for (let i = 0; i < warm * 60; i++) {
-    if (world.state === 'playing') world.update(1 / 60, input);
+  if (warm > 0) {
+    // A warm-up that stops the first time the crowd levels you up isn't a
+    // warmed-up run, it's a run parked on a menu. Auto-take an offer for the
+    // duration of the warm-up so #city=x&t=N lands in play as documented.
+    const real = hooks.onLevelUp;
+    hooks.onLevelUp = (offers) => { ui.hideOffers(); world.resolveLevelUp(offers[0]); };
+    for (let i = 0; i < warm * 60; i++) {
+      if (world.state === 'playing') world.update(1 / 60, input);
+    }
+    hooks.onLevelUp = real;
+  }
+  if (boot.get('shot')) {
+    frozen = true;
+    if (world.state === 'levelup') { ui.hideOffers(); world.state = 'playing'; }
+    ui.showGame();
   }
 } else {
   goto(boot.get('screen') || 'title');

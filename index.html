@@ -33,6 +33,11 @@
         <span id="served" class="chip">0 served</span>
         <span id="cityRule" class="rule"></span>
       </div>
+      <div id="streakWrap" class="streak hidden">
+        <div class="srow"><span id="streakN">2 HOT</span><span id="streakX">1.10x</span></div>
+        <div class="sbar"><i id="streakFill"></i></div>
+      </div>
+
       <div id="bossWrap" class="bosswrap hidden">
         <div class="bossname" id="bossName"></div>
         <div class="bossbar"><i id="bossFill"></i></div>
@@ -63,7 +68,9 @@
       <p class="tag">Munna lost his grandmother’s cart. He’s walking eight cities to win her recipe book back.</p>
       <button class="big" data-go="story">BEGIN</button>
       <button class="ghost" data-go="city">Skip to the map</button>
-      <p class="hint">WASD / arrows to move · SPACE for tadka · drag on touch<br />Stand still to stoke the tawa.</p>
+      <p class="hint">WASD / arrows to move · SPACE for tadka · drag on touch<br />
+      Stand still to stoke the tawa. Hold tadka for a <b>crowd of 5+</b> — it pays heat back<br />
+      and makes them eat anything. Serve them <b>fresh, in a row,</b> to run the streak up.</p>
       <button class="ghost hidden" id="btnInstall">Install to home screen</button>
       <p class="hint hidden" id="iosHint">On iPhone: tap <b>Share</b> → <b>Add to Home Screen</b> to play fullscreen and offline.</p>
     </section>
